@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 import sys
+# Add thrift path to PYTHONPATH
 sys.path.append("/Users/chris/Workspace/hadoop/hive-0.7.1-cdh3u2/lib/py")
 
 from hive_service import ThriftHive
@@ -9,17 +10,9 @@ from thrift.transport import TSocket
 from thrift.transport import TTransport
 from thrift.protocol import TBinaryProtocol
 
+import pickle
+
 def fetch_db_info_from_hive(hive_server_addr):
-    """
-    Fetches the databases, tables, and columns from hive.
-
-    Args:
-        `hive_server_addr`: address of hive server
-
-    Returns:
-        A map contains
-          {database : {table : {column_name : column_type, ...}, ...}, ...}
-    """
     try:
         transport = TSocket.TSocket(hive_server_addr, 10000)
         transport = TTransport.TBufferedTransport(transport)
@@ -61,37 +54,106 @@ def fetch_db_info_from_hive(hive_server_addr):
         print '%s' % (tx.message)
 
 
-def generate_sql_from_export(hive_server_addr):
+def generate_sql_from_map(db_tbl_map):
     insert_to_db = "Insert INTO hive_dbs (db_id, db_name) VALUES (%s, '%s');"
     insert_to_tbl = "Insert INTO hive_tbls (tbl_id, tbl_name, db_id) VALUES (%s, '%s', %s);"
     insert_to_col = "Insert INTO hive_cols (col_id, col_name, col_type, tbl_id) VALUES (%s, '%s', '%s', %s);"
-    db_tbl_map = fetch_db_info_from_hive(hive_server_addr)
+    
+    sql_list = []
+    db_sql_list = []
+    tbl_sql_list = []
+    col_sql_list = []
 
     db_count = 0;
     for db in db_tbl_map:
-        print insert_to_db % (db_count, db)
+        db_sql_list.append(insert_to_db % (db_count, db))
         tbl_col_map = db_tbl_map[db]
 
         tbl_count = 0;
         for tbl in tbl_col_map:
-            print insert_to_tbl % (tbl_count, tbl, db_count)
+            tbl_sql_list.append(insert_to_tbl % (tbl_count, tbl, db_count))
             col_map = tbl_col_map[tbl]
 
             col_count = 0;
             for (col_name, col_type) in col_map.items():
-                print insert_to_col % (col_count, col_name, col_type, tbl_count)
+                col_sql_list.append(insert_to_col % (col_count, col_name, col_type, tbl_count))
                 col_count += 1;
             tbl_count+=1;
         db_count+=1;
+    sql_list.extend(db_sql_list)
+    sql_list.extend(tbl_sql_list)
+    sql_list.extend(col_sql_list)
+    return sql_list
 
+def save_db_tbl_map(db_tbl_map, file_path):
+    output = open(file_path, "wb")
+    pickle.dump(db_tbl_map, output)
+    output.close()
+
+def load_db_tbl_map(file_path):
+    map_file = open(file_path, "rb")
+    db_tbl_map = pickle.load(map_file)
+    map_file.close()
+    return db_tbl_map
 
 # Test
 import unittest
+import os
 
 class TestHiveExporter(unittest.TestCase):
 
+    def setUp(self):
+        self.test_map = {"log":
+                             {"user":
+                                  {"user_id":"int",
+                                   "user_name":"string"},
+                              "role":
+                                  {"role_id":"int",
+                                   "role_name":"string"}
+                              },
+                         "history":
+                             {"user":
+                                  {"user_id":"int",
+                                   "user_name":"string"},
+                              "operate":
+                                  {"modify":"string",
+                                   "create":"string"}
+                              }
+                         }
+
+        self.sql_list = ["Insert INTO hive_dbs (db_id, db_name) VALUES (0, 'log');", 
+                         "Insert INTO hive_dbs (db_id, db_name) VALUES (1, 'history');", 
+                         "Insert INTO hive_tbls (tbl_id, tbl_name, db_id) VALUES (0, 'role', 0);", 
+                         "Insert INTO hive_tbls (tbl_id, tbl_name, db_id) VALUES (1, 'user', 0);", 
+                         "Insert INTO hive_tbls (tbl_id, tbl_name, db_id) VALUES (0, 'operate', 1);", 
+                         "Insert INTO hive_tbls (tbl_id, tbl_name, db_id) VALUES (1, 'user', 1);", 
+                         "Insert INTO hive_cols (col_id, col_name, col_type, tbl_id) VALUES (0, 'role_name', 'string', 0);", 
+                         "Insert INTO hive_cols (col_id, col_name, col_type, tbl_id) VALUES (1, 'role_id', 'int', 0);", 
+                         "Insert INTO hive_cols (col_id, col_name, col_type, tbl_id) VALUES (0, 'user_name', 'string', 1);", 
+                         "Insert INTO hive_cols (col_id, col_name, col_type, tbl_id) VALUES (1, 'user_id', 'int', 1);", 
+                         "Insert INTO hive_cols (col_id, col_name, col_type, tbl_id) VALUES (0, 'create', 'string', 0);", 
+                         "Insert INTO hive_cols (col_id, col_name, col_type, tbl_id) VALUES (1, 'modify', 'string', 0);", 
+                         "Insert INTO hive_cols (col_id, col_name, col_type, tbl_id) VALUES (0, 'user_name', 'string', 1);", 
+                         "Insert INTO hive_cols (col_id, col_name, col_type, tbl_id) VALUES (1, 'user_id', 'int', 1);"]
+
+    def tearDown(self):
+        pass
+
+    # def test_fetch_hive_info(self):
+    #     fetch_db_info_from_hive("localhost")
+
     def test_sql_generate(self):
-        generate_sql_from_export("hz169-98.i.netease.com")
+        sql_list = generate_sql_from_map(self.test_map)
+        self.assertEqual(self.sql_list, sql_list)
+
+    def test_save_db_tbl_map(self):
+        path = "db_tbl.map"
+        db_tbl_map = self.test_map
+        save_db_tbl_map(db_tbl_map, path)
+        db_tbl_map_new = load_db_tbl_map(path)
+        self.assertEqual(db_tbl_map, db_tbl_map_new)
+        os.remove(path)
+
 
 if __name__ == "__main__":
     unittest.main()
