@@ -11,6 +11,7 @@ from thrift.transport import TTransport
 from thrift.protocol import TBinaryProtocol
 
 import pickle
+import copy
 
 def fetch_db_info_from_hive(hive_server_addr):
     try:
@@ -80,9 +81,9 @@ def generate_sql_from_map(db_tbl_map):
                 col_count += 1;
             tbl_count+=1;
         db_count+=1;
-    sql_list.extend(db_sql_list)
-    sql_list.extend(tbl_sql_list)
-    sql_list.extend(col_sql_list)
+    sql_list.append(db_sql_list)
+    sql_list.append(tbl_sql_list)
+    sql_list.append(col_sql_list)
     return sql_list
 
 def save_db_tbl_map(db_tbl_map, file_path):
@@ -96,6 +97,39 @@ def load_db_tbl_map(file_path):
     map_file.close()
     return db_tbl_map
 
+def generate_order_list(db_tbl_map, old_order_list):
+    new_order_list = copy.deepcopy(old_order_list)
+    if not old_order_list:
+        for db in db_tbl_map:
+            tbl_list = []
+            for tbl in db_tbl_map[db]:
+                tbl_list.append(tbl)
+            new_order_list.append({db:tbl_list})
+    else:
+        db_index = 0
+        for db in db_tbl_map:
+            is_new_db = True
+            for db_order in old_order_list:
+                if (db == db_order.keys()[0]):
+                    is_new_db = False
+            if is_new_db:
+                tbl_list = [];
+                for tbl in db_tbl_map[db]:
+                    tbl_list.append(tbl)
+                db_tbl = {db:tbl_list}
+                new_order_list.append(db_tbl)
+                continue
+            
+            for tbl in db_tbl_map[db]:
+                is_new_tbl = True
+                for tbl_order in new_order_list[db_index][db]:
+                    if (tbl == tbl_order):
+                        is_new_tbl = False
+                if is_new_tbl:
+                    new_order_list[db_index][db].append(tbl)
+            db_index += 1
+    return new_order_list
+
 # Test
 import unittest
 import os
@@ -103,7 +137,7 @@ import os
 class TestHiveExporter(unittest.TestCase):
 
     def setUp(self):
-        self.test_map = {"log":
+        self.db_tbl_map = {"log":
                              {"user":
                                   {"user_id":"int",
                                    "user_name":"string"},
@@ -121,20 +155,24 @@ class TestHiveExporter(unittest.TestCase):
                               }
                          }
 
-        self.sql_list = ["Insert INTO hive_dbs (db_id, db_name) VALUES (0, 'log');", 
-                         "Insert INTO hive_dbs (db_id, db_name) VALUES (1, 'history');", 
-                         "Insert INTO hive_tbls (tbl_id, tbl_name, db_id) VALUES (0, 'role', 0);", 
+        self.sql_list = [["Insert INTO hive_dbs (db_id, db_name) VALUES (0, 'log');", 
+                         "Insert INTO hive_dbs (db_id, db_name) VALUES (1, 'history');"], 
+                         ["Insert INTO hive_tbls (tbl_id, tbl_name, db_id) VALUES (0, 'role', 0);", 
                          "Insert INTO hive_tbls (tbl_id, tbl_name, db_id) VALUES (1, 'user', 0);", 
                          "Insert INTO hive_tbls (tbl_id, tbl_name, db_id) VALUES (0, 'operate', 1);", 
-                         "Insert INTO hive_tbls (tbl_id, tbl_name, db_id) VALUES (1, 'user', 1);", 
-                         "Insert INTO hive_cols (col_id, col_name, col_type, tbl_id) VALUES (0, 'role_name', 'string', 0);", 
+                         "Insert INTO hive_tbls (tbl_id, tbl_name, db_id) VALUES (1, 'user', 1);"], 
+                         ["Insert INTO hive_cols (col_id, col_name, col_type, tbl_id) VALUES (0, 'role_name', 'string', 0);", 
                          "Insert INTO hive_cols (col_id, col_name, col_type, tbl_id) VALUES (1, 'role_id', 'int', 0);", 
                          "Insert INTO hive_cols (col_id, col_name, col_type, tbl_id) VALUES (0, 'user_name', 'string', 1);", 
                          "Insert INTO hive_cols (col_id, col_name, col_type, tbl_id) VALUES (1, 'user_id', 'int', 1);", 
                          "Insert INTO hive_cols (col_id, col_name, col_type, tbl_id) VALUES (0, 'create', 'string', 0);", 
                          "Insert INTO hive_cols (col_id, col_name, col_type, tbl_id) VALUES (1, 'modify', 'string', 0);", 
                          "Insert INTO hive_cols (col_id, col_name, col_type, tbl_id) VALUES (0, 'user_name', 'string', 1);", 
-                         "Insert INTO hive_cols (col_id, col_name, col_type, tbl_id) VALUES (1, 'user_id', 'int', 1);"]
+                         "Insert INTO hive_cols (col_id, col_name, col_type, tbl_id) VALUES (1, 'user_id', 'int', 1);"]]
+
+        self.db_tbl_order_list = [{"log":["role", "user"]},
+                                  {"history":["operate", "user"]}]
+                               
 
     def tearDown(self):
         pass
@@ -142,17 +180,109 @@ class TestHiveExporter(unittest.TestCase):
     # def test_fetch_hive_info(self):
     #     fetch_db_info_from_hive("localhost")
 
-    def test_sql_generate(self):
-        sql_list = generate_sql_from_map(self.test_map)
+    def test_generate_sql(self):
+        sql_list = generate_sql_from_map(self.db_tbl_map)
+
         self.assertEqual(self.sql_list, sql_list)
 
     def test_save_db_tbl_map(self):
         path = "db_tbl.map"
-        db_tbl_map = self.test_map
+        db_tbl_map = self.db_tbl_map
         save_db_tbl_map(db_tbl_map, path)
         db_tbl_map_new = load_db_tbl_map(path)
+
         self.assertEqual(db_tbl_map, db_tbl_map_new)
         os.remove(path)
+
+    def test_generate_order_list_from_initial(self):
+        old_order_list = []
+        new_order_list = generate_order_list(self.db_tbl_map, old_order_list)
+
+        self.assertEqual(self.db_tbl_order_list, new_order_list)
+
+    def test_generate_order_list_when_db_is_added(self):
+        db_tbl_map = self.db_tbl_map
+        db_tbl_map["demo"] = {"client":
+                                  {"client_id":"int",
+                                   "client_name":"string"},
+                              "product":
+                                  {"product_id":"int",
+                                   "product_name":"string"}}
+        expected_order_list = copy.deepcopy(self.db_tbl_order_list)
+        expected_order_list.append({"demo":["product", "client"]})
+        
+        old_order_list = self.db_tbl_order_list
+        new_order_list = generate_order_list(db_tbl_map, old_order_list)
+
+        self.assertEqual(expected_order_list, new_order_list)
+
+    def test_generate_order_list_when_tbl_is_added(self):
+        db_tbl_map = self.db_tbl_map
+        db_tbl_map["log"]["client"] = {"client_id":"int",
+                                       "client_name":"string"}
+
+        expected_order_list = copy.deepcopy(self.db_tbl_order_list)
+        expected_order_list[0]["log"].append("client")
+
+        new_order_list = generate_order_list(db_tbl_map, self.db_tbl_order_list)
+
+        self.assertEqual(expected_order_list, new_order_list)
+
+    def test_generate_order_list_without_affect_old_order_list(self):
+        db_tbl_map = self.db_tbl_map
+        db_tbl_map["log"]["client"] = {"client_id":"int",
+                                       "client_name":"string"}
+        old_order_list = self.db_tbl_order_list
+        expected_old_order_list = copy.deepcopy(self.db_tbl_order_list)
+
+        generate_order_list(db_tbl_map, old_order_list)
+
+        self.assertEqual(expected_old_order_list, old_order_list)
+        
+    def test_generate_order_list_when_multi_tbl_are_added(self):
+        db_tbl_map = self.db_tbl_map
+        db_tbl_map["log"]["client"] = {"client_id":"int",
+                                       "client_name":"string"}
+        db_tbl_map["history"]["date"] = {"year":"int",
+                                         "month":"int",
+                                         "day":"int"}
+        expected_order_list = copy.deepcopy(self.db_tbl_order_list)
+        expected_order_list[0]["log"].append("client")
+        expected_order_list[1]["history"].append("date")
+
+        new_order_list = generate_order_list(db_tbl_map, self.db_tbl_order_list)
+
+        self.assertEqual(expected_order_list, new_order_list)
+
+    def test_generate_order_list_when_multi_tbl_and_db_are_added(self):
+        db_tbl_map = self.db_tbl_map
+        db_tbl_map["log"]["client"] = {"client_id":"int",
+                                       "client_name":"string"}
+        db_tbl_map["history"]["date"] = {"year":"int",
+                                         "month":"int",
+                                         "day":"int"}
+        db_tbl_map["demo1"] = {"client":
+                                  {"client_id":"int",
+                                   "client_name":"string"},
+                              "product":
+                                  {"product_id":"int",
+                                   "product_name":"string"}}
+        db_tbl_map["demo2"] = {"agent":
+                                  {"agent_id":"int",
+                                   "agent_name":"string"},
+                              "feature":
+                                  {"feature_id":"int",
+                                   "feature_name":"string"}}
+        expected_order_list = copy.deepcopy(self.db_tbl_order_list)
+        expected_order_list[0]["log"].append("client")
+        expected_order_list[1]["history"].append("date")
+        expected_order_list.append({"demo2":["feature", "agent"]})
+        expected_order_list.append({"demo1":["product", "client"]})
+
+        new_order_list = generate_order_list(db_tbl_map, self.db_tbl_order_list)
+
+        self.assertEqual(expected_order_list, new_order_list)
+
 
 
 if __name__ == "__main__":
