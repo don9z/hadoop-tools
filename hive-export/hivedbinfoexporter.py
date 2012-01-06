@@ -54,33 +54,27 @@ def fetch_db_info_from_hive(hive_server_addr):
     except Thrift.TException, tx:
         print '%s' % (tx.message)
 
-
-def generate_sql_from_map(db_tbl_map):
+def generate_sql_list_from_map_by_order(db_tbl_map, db_tbl_order_list):
     insert_to_db = "Insert INTO hive_dbs (db_id, db_name) VALUES (%s, '%s');"
     insert_to_tbl = "Insert INTO hive_tbls (tbl_id, tbl_name, db_id) VALUES (%s, '%s', %s);"
-    insert_to_col = "Insert INTO hive_cols (col_id, col_name, col_type, tbl_id) VALUES (%s, '%s', '%s', %s);"
+    insert_to_col = "Insert INTO hive_cols (col_name, col_type, tbl_id) VALUES ('%s', '%s', %s);"
     
     sql_list = []
     db_sql_list = []
     tbl_sql_list = []
     col_sql_list = []
 
-    db_count = 0;
-    for db in db_tbl_map:
-        db_sql_list.append(insert_to_db % (db_count, db))
-        tbl_col_map = db_tbl_map[db]
-
-        tbl_count = 0;
-        for tbl in tbl_col_map:
-            tbl_sql_list.append(insert_to_tbl % (tbl_count, tbl, db_count))
-            col_map = tbl_col_map[tbl]
-
-            col_count = 0;
-            for (col_name, col_type) in col_map.items():
-                col_sql_list.append(insert_to_col % (col_count, col_name, col_type, tbl_count))
-                col_count += 1;
-            tbl_count+=1;
-        db_count+=1;
+    db_count = 0
+    for order_map in db_tbl_order_list:
+        for db in order_map:
+            db_sql_list.append(insert_to_db % (db_count, db))
+            tbl_count = 0
+            for tbl in order_map[db]:
+                tbl_sql_list.append(insert_to_tbl % (tbl_count, tbl, db_count))
+                for col_name in db_tbl_map[db][tbl]:
+                    col_sql_list.append(insert_to_col % (col_name, db_tbl_map[db][tbl][col_name], tbl_count))
+                tbl_count += 1
+        db_count += 1
     sql_list.append(db_sql_list)
     sql_list.append(tbl_sql_list)
     sql_list.append(col_sql_list)
@@ -161,18 +155,41 @@ class TestHiveExporter(unittest.TestCase):
                          "Insert INTO hive_tbls (tbl_id, tbl_name, db_id) VALUES (1, 'user', 0);", 
                          "Insert INTO hive_tbls (tbl_id, tbl_name, db_id) VALUES (0, 'operate', 1);", 
                          "Insert INTO hive_tbls (tbl_id, tbl_name, db_id) VALUES (1, 'user', 1);"], 
-                         ["Insert INTO hive_cols (col_id, col_name, col_type, tbl_id) VALUES (0, 'role_name', 'string', 0);", 
-                         "Insert INTO hive_cols (col_id, col_name, col_type, tbl_id) VALUES (1, 'role_id', 'int', 0);", 
-                         "Insert INTO hive_cols (col_id, col_name, col_type, tbl_id) VALUES (0, 'user_name', 'string', 1);", 
-                         "Insert INTO hive_cols (col_id, col_name, col_type, tbl_id) VALUES (1, 'user_id', 'int', 1);", 
-                         "Insert INTO hive_cols (col_id, col_name, col_type, tbl_id) VALUES (0, 'create', 'string', 0);", 
-                         "Insert INTO hive_cols (col_id, col_name, col_type, tbl_id) VALUES (1, 'modify', 'string', 0);", 
-                         "Insert INTO hive_cols (col_id, col_name, col_type, tbl_id) VALUES (0, 'user_name', 'string', 1);", 
-                         "Insert INTO hive_cols (col_id, col_name, col_type, tbl_id) VALUES (1, 'user_id', 'int', 1);"]]
+                         ["Insert INTO hive_cols (col_name, col_type, tbl_id) VALUES ('role_name', 'string', 0);", 
+                         "Insert INTO hive_cols (col_name, col_type, tbl_id) VALUES ('role_id', 'int', 0);", 
+                         "Insert INTO hive_cols (col_name, col_type, tbl_id) VALUES ('user_name', 'string', 1);", 
+                         "Insert INTO hive_cols (col_name, col_type, tbl_id) VALUES ('user_id', 'int', 1);", 
+                         "Insert INTO hive_cols (col_name, col_type, tbl_id) VALUES ('create', 'string', 0);", 
+                         "Insert INTO hive_cols (col_name, col_type, tbl_id) VALUES ('modify', 'string', 0);", 
+                         "Insert INTO hive_cols (col_name, col_type, tbl_id) VALUES ('user_name', 'string', 1);", 
+                         "Insert INTO hive_cols (col_name, col_type, tbl_id) VALUES ('user_id', 'int', 1);"]]
 
         self.db_tbl_order_list = [{"log":["role", "user"]},
                                   {"history":["operate", "user"]}]
-                               
+
+        self.sql_list_after_add_dbs_and_tbls = [["Insert INTO hive_dbs (db_id, db_name) VALUES (0, 'log');", 
+                                                 "Insert INTO hive_dbs (db_id, db_name) VALUES (1, 'history');",
+                                                 "Insert INTO hive_dbs (db_id, db_name) VALUES (2, 'demo2');",
+                                                 "Insert INTO hive_dbs (db_id, db_name) VALUES (3, 'demo1');"], 
+                                                ["Insert INTO hive_tbls (tbl_id, tbl_name, db_id) VALUES (0, 'role', 0);", 
+                                                 "Insert INTO hive_tbls (tbl_id, tbl_name, db_id) VALUES (1, 'user', 0);", 
+                                                 "Insert INTO hive_tbls (tbl_id, tbl_name, db_id) VALUES (2, 'client', 0);", 
+                                                 "Insert INTO hive_tbls (tbl_id, tbl_name, db_id) VALUES (0, 'operate', 1);", 
+                                                 "Insert INTO hive_tbls (tbl_id, tbl_name, db_id) VALUES (1, 'user', 1);",
+                                                 "Insert INTO hive_tbls (tbl_id, tbl_name, db_id) VALUES (2, 'date', 1);",
+                                                 "Insert INTO hive_tbls (tbl_id, tbl_name, db_id) VALUES (0, 'feature', 2);",
+                                                 "Insert INTO hive_tbls (tbl_id, tbl_name, db_id) VALUES (1, 'agent', 2);",
+                                                 "Insert INTO hive_tbls (tbl_id, tbl_name, db_id) VALUES (0, 'product', 3);"
+                                                 "Insert INTO hive_tbls (tbl_id, tbl_name, db_id) VALUES (1, 'client', 3);"], 
+                                                ["Insert INTO hive_cols (col_name, col_type, tbl_id) VALUES ('role_name', 'string', 0);", 
+                                                 "Insert INTO hive_cols (col_name, col_type, tbl_id) VALUES ('role_id', 'int', 0);", 
+                                                 "Insert INTO hive_cols (col_name, col_type, tbl_id) VALUES ('user_name', 'string', 1);", 
+                                                 "Insert INTO hive_cols (col_name, col_type, tbl_id) VALUES ('user_id', 'int', 1);", 
+                                                 
+                                                 "Insert INTO hive_cols (col_name, col_type, tbl_id) VALUES ('create', 'string', 0);", 
+                                                 "Insert INTO hive_cols (col_name, col_type, tbl_id) VALUES ('modify', 'string', 0);", 
+                                                 "Insert INTO hive_cols (col_name, col_type, tbl_id) VALUES ('user_name', 'string', 1);", 
+                                                 "Insert INTO hive_cols (col_name, col_type, tbl_id) VALUES ('user_id', 'int', 1);"]]
 
     def tearDown(self):
         pass
@@ -180,21 +197,7 @@ class TestHiveExporter(unittest.TestCase):
     # def test_fetch_hive_info(self):
     #     fetch_db_info_from_hive("localhost")
 
-    def test_generate_sql(self):
-        sql_list = generate_sql_from_map(self.db_tbl_map)
-
-        self.assertEqual(self.sql_list, sql_list)
-
-    def test_save_db_tbl_map(self):
-        path = "db_tbl.map"
-        db_tbl_map = self.db_tbl_map
-        save_db_tbl_map(db_tbl_map, path)
-        db_tbl_map_new = load_db_tbl_map(path)
-
-        self.assertEqual(db_tbl_map, db_tbl_map_new)
-        os.remove(path)
-
-    def test_generate_order_list_from_initial(self):
+    def test_generate_order_list_first_time(self):
         old_order_list = []
         new_order_list = generate_order_list(self.db_tbl_map, old_order_list)
 
@@ -239,7 +242,7 @@ class TestHiveExporter(unittest.TestCase):
 
         self.assertEqual(expected_old_order_list, old_order_list)
         
-    def test_generate_order_list_when_multi_tbl_are_added(self):
+    def test_generate_order_list_when_multi_tbls_are_added(self):
         db_tbl_map = self.db_tbl_map
         db_tbl_map["log"]["client"] = {"client_id":"int",
                                        "client_name":"string"}
@@ -254,7 +257,7 @@ class TestHiveExporter(unittest.TestCase):
 
         self.assertEqual(expected_order_list, new_order_list)
 
-    def test_generate_order_list_when_multi_tbl_and_db_are_added(self):
+    def test_generate_order_list_when_multi_tbls_and_dbs_are_added(self):
         db_tbl_map = self.db_tbl_map
         db_tbl_map["log"]["client"] = {"client_id":"int",
                                        "client_name":"string"}
@@ -283,6 +286,14 @@ class TestHiveExporter(unittest.TestCase):
 
         self.assertEqual(expected_order_list, new_order_list)
 
+    def test_save_db_tbl_map(self):
+        path = "db_tbl.map"
+        db_tbl_map = self.db_tbl_map
+        save_db_tbl_map(db_tbl_map, path)
+        db_tbl_map_new = load_db_tbl_map(path)
+
+        self.assertEqual(db_tbl_map, db_tbl_map_new)
+        os.remove(path)
 
 
 if __name__ == "__main__":
