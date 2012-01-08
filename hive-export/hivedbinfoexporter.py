@@ -55,21 +55,21 @@ def fetch_db_info_from_hive(hive_server_addr):
         print '%s' % (tx.message)
 
 class DBInfo(object):
-    def __init__(self, db_id, db):
+    def __init__(self, db_id, db_name):
         self.db_id = db_id
-        self.db = db
+        self.db_name = db_name
 
     def __eq__(self, other):
-        return self.db_id == other.db_id and self.db == other.db
+        return self.db_id == other.db_id and self.db_name == other.db_name
 
 class TBLInfo(object):
-    def __init__(self, tbl_id, tbl, db_id):
+    def __init__(self, tbl_id, tbl_name, db_id):
         self.tbl_id = tbl_id
-        self.tbl = tbl
+        self.tbl_name = tbl_name
         self.db_id = db_id
     
     def __eq__(self, other):
-        return self.tbl_id == other.tbl_id and self.tbl == other.tbl and self.db_id == other.db_id
+        return self.tbl_id == other.tbl_id and self.tbl_name == other.tbl_name and self.db_id == other.db_id
         
 class COLInfo(object):
     def __init__(self, col_name, col_type, tbl_id):
@@ -90,28 +90,16 @@ class HiveMetaData(object):
 
     def get_db_id(self, db_name):
         for db_info in self.dbs:
-            if db_info.db == db_name:
+            if db_info.db_name == db_name:
                 return db_info.db_id
         return self.db_count
 
     def get_tbl_id(self, tbl_name, db_name):
         db_id = self.get_db_id(db_name)
         for tbl_info in self.tbls:
-            if tbl_info.tbl == tbl_name and tbl_info.db_id == db_id:
+            if tbl_info.tbl_name == tbl_name and tbl_info.db_id == db_id:
                 return tbl_info.tbl_id
         return self.tbl_count
-
-    def is_db_exist(self, db_name):
-        if get_db_id(db_name) == False:
-            return True
-        else:
-            return False
-
-    def is_tbl_from_db_exist(self, tbl_name, db_name):
-        if get_tbl_id(tbl_name, db_name):
-            return True
-        else:
-            return False
 
     def add_db(self, db_name):
         db_id = self.get_db_id(db_name)
@@ -148,19 +136,15 @@ def gen_new_hive_meta_data(db_tbl_map, old_meta_data):
     return meta_data
 
 def print_hive_meta_data(meta_data):
-    print "db info:"
+    print "---- db info ----"
     for db_info in meta_data.dbs:
-        print db_info.db_id
-        print db_info.db
-    print "tbl info:"
+        print "%d   %s" % (db_info.db_id, db_info.db_name)
+    print "---- tbl info ----"
     for tbl_info in meta_data.tbls:
-        print tbl_info.tbl_id
-        print tbl_info.tbl
-        print tbl_info.db_id
-    print "col info:"
+        print "%d   %s   %d" % (tbl_info.tbl_id, tbl_info.tbl_name, tbl_info.db_id)
+    print "---- col info ----"
     for col_info in meta_data.cols:
-        print col_info.col_name + " : " + col_info.col_type
-        print col_info.tbl_id
+        print "%s   %s   %d" % (col_info.col_name, col_info.col_type, col_info.tbl_id)
 
 def gen_sql_list_from_hive_meta_data(meta_data):
     insert_to_db = "Insert INTO hive_dbs (db_id, db_name) VALUES (%s, '%s');"
@@ -169,26 +153,25 @@ def gen_sql_list_from_hive_meta_data(meta_data):
     
     sql_list = []
     for db_info in meta_data.dbs:
-        sql_list.append(insert_to_db % (db_info.db_id, db_info.db))
+        sql_list.append(insert_to_db % (db_info.db_id, db_info.db_name))
 
     for tbl_info in meta_data.tbls:
-        sql_list.append(insert_to_tbl % (tbl_info.tbl_id, tbl_info.tbl, tbl_info.db_id))
+        sql_list.append(insert_to_tbl % (tbl_info.tbl_id, tbl_info.tbl_name, tbl_info.db_id))
     for col_info in meta_data.cols:
         sql_list.append(insert_to_col % (col_info.col_name, col_info.col_type, col_info.tbl_id))
 
     return sql_list
 
-def save_db_tbl_map(db_tbl_map, file_path):
+def save_hive_meta_data(hive_meta_data, file_path):
     output = open(file_path, "wb")
-    pickle.dump(db_tbl_map, output)
+    pickle.dump(hive_meta_data, output)
     output.close()
 
-def load_db_tbl_map(file_path):
+def load_hive_meta_data(file_path):
     map_file = open(file_path, "rb")
-    db_tbl_map = pickle.load(map_file)
+    hive_meta_data = pickle.load(map_file)
     map_file.close()
-    return db_tbl_map
-
+    return hive_meta_data
 
 # Test
 import unittest
@@ -245,8 +228,8 @@ class TestHiveExporter(unittest.TestCase):
                                     COLInfo("user_name", "string", 3),
                                     COLInfo("user_id", "int", 3)]
 
-    def tearDown(self):
-        pass
+    # def test_fetch_hive_info(self):
+    #     fetch_db_info_from_hive("localhost")
 
     def test_gen_hive_meta(self):
         expected_hive_meta = self.hive_meta_data
@@ -288,7 +271,6 @@ class TestHiveExporter(unittest.TestCase):
                                        {"product_id":"int"}}
         self.db_tbl_map["log"]["level"] = {"level_id":"int"}
         self.db_tbl_map["history"]["operate"]["delete"] = "string"
-
         expected_hive_meta = HiveMetaData()
         expected_hive_meta.dbs = [DBInfo(0, "log"), DBInfo(1, "history"),
                                   DBInfo(2, "demo")]
@@ -317,16 +299,12 @@ class TestHiveExporter(unittest.TestCase):
         sql_list = gen_sql_list_from_hive_meta_data(self.hive_meta_data)
         self.assertEqual(self.sql_list, sql_list)
         
-    # def test_fetch_hive_info(self):
-    #     fetch_db_info_from_hive("localhost")
-
-    def test_save_db_tbl_map(self):
-        path = "db_tbl.map"
-        db_tbl_map = self.db_tbl_map
-        save_db_tbl_map(db_tbl_map, path)
-        db_tbl_map_new = load_db_tbl_map(path)
-
-        self.assertEqual(db_tbl_map, db_tbl_map_new)
+    def test_save_hive_meta_data(self):
+        path = "hive_meta.data"
+        hive_meta_data = copy.deepcopy(self.hive_meta_data)
+        save_hive_meta_data(hive_meta_data, path)
+        new_hive_meta_data = load_hive_meta_data(path)
+        self.assertEqual(self.hive_meta_data, new_hive_meta_data)
         os.remove(path)
 
 
