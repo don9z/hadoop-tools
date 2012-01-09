@@ -304,22 +304,17 @@ import argparse
 
 def get_sqls(args):
     ns = vars(args)
-    print ns
-    print ns["out"]
     url = ns["from"].split(":")
     if len(url) == 2:
         db_tbl_map = fetch_db_info_from_hive(url[0], url[1])
     else:
         db_tbl_map = fetch_db_info_from_hive(url[0])
     hive_meta_data = gen_new_hive_meta_data(db_tbl_map, HiveMetaData())
-    if not ns["out"]:
-        print_sql_list(gen_sql_list_from_hive_meta_data(hive_meta_data))
-    else:
-        save_hive_meta_data(hive_meta_data, ns["out"])
+    save_hive_meta_data(hive_meta_data, ns["out"])
+    print_sql_list(gen_sql_list_from_hive_meta_data(hive_meta_data))
 
 def update_sqls(args):
     ns = vars(args)
-    print ns
     url = ns["from"].split(":")
     if len(url) == 2:
         db_tbl_map = fetch_db_info_from_hive(url[0], url[1])
@@ -327,10 +322,8 @@ def update_sqls(args):
         db_tbl_map = fetch_db_info_from_hive(url[0])
     old_meta_data = load_hive_meta_data(ns["in"])
     hive_meta_data = gen_new_hive_meta_data(db_tbl_map, old_meta_data)
-    if not ns["out"]:
-        print_sql_list(gen_sql_list_from_hive_meta_data(hive_meta_data))
-    else:
-        save_hive_meta_data(hive_meta_data, ns["out"])
+    print_sql_list(gen_sql_list_from_hive_meta_data(hive_meta_data))
+    save_hive_meta_data(hive_meta_data, ns["out"])
 
 def show_hive_db_info(args):
     ns = vars(args)
@@ -351,7 +344,7 @@ def main():
 
     parent_parser = argparse.ArgumentParser(add_help=False)
     parent_parser.add_argument("-f", "--from", required=True, metavar="url[:port]", help="hive server address")
-    parent_parser.add_argument("-o", "--out", metavar="path", help="output file")
+    parent_parser.add_argument("-o", "--out", required=True, metavar="path", help="backup file")
     
     parser_get = subparsers.add_parser("get", parents=[parent_parser], help="get sqls from hive server")
     parser_get.set_defaults(func=get_sqls)
