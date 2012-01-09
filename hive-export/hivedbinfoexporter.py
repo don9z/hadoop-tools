@@ -13,9 +13,9 @@ from thrift.protocol import TBinaryProtocol
 import pickle
 import copy
 
-def fetch_db_info_from_hive(hive_server_addr):
+def fetch_db_info_from_hive(hive_server_addr, port=10000):
     try:
-        transport = TSocket.TSocket(hive_server_addr, 10000)
+        transport = TSocket.TSocket(hive_server_addr, port)
         transport = TTransport.TBufferedTransport(transport)
         protocol = TBinaryProtocol.TBinaryProtocol(transport)
 
@@ -53,6 +53,14 @@ def fetch_db_info_from_hive(hive_server_addr):
 
     except Thrift.TException, tx:
         print '%s' % (tx.message)
+
+def print_db_info(db_tbl_map):
+    for db in db_tbl_map:
+        print db
+        for tbl in db_tbl_map[db]:
+            print "    " + tbl
+            for col in db_tbl_map[db][tbl]:
+                print "        " + col.ljust(12), db_tbl_map[db][tbl][col]
 
 class DBInfo(object):
     def __init__(self, db_id, db_name):
@@ -125,7 +133,7 @@ class HiveMetaData(object):
     def __eq__(self, other):
         return self.db_count == other.db_count and self.tbl_count == other.tbl_count and self.dbs == other.dbs and self.tbls == other.tbls and self.cols == other.cols
 
-def gen_new_hive_meta_data(db_tbl_map, old_meta_data):
+def gen_new_hive_meta_data(db_tbl_map, old_meta_data=HiveMetaData()):
     meta_data = copy.deepcopy(old_meta_data)
     for db in db_tbl_map:
         meta_data.add_db(db)
@@ -136,15 +144,18 @@ def gen_new_hive_meta_data(db_tbl_map, old_meta_data):
     return meta_data
 
 def print_hive_meta_data(meta_data):
-    print "---- db info ----"
+    print "-------- db info --------"
+    print "db_id".ljust(8), "db_name".ljust(20)
     for db_info in meta_data.dbs:
-        print "%d   %s" % (db_info.db_id, db_info.db_name)
-    print "---- tbl info ----"
+        print repr(db_info.db_id).ljust(8), db_info.db_name.ljust(20)
+    print "-------- tbl info --------"
+    print "tbl_id".ljust(8), "db_id".ljust(8), "tbl_name".ljust(20)
     for tbl_info in meta_data.tbls:
-        print "%d   %s   %d" % (tbl_info.tbl_id, tbl_info.tbl_name, tbl_info.db_id)
-    print "---- col info ----"
+        print repr(tbl_info.tbl_id).ljust(8), repr(tbl_info.db_id).ljust(8), tbl_info.tbl_name.ljust(20)
+    print "-------- col info --------"
+    print "col_id".ljust(8), "col_name".ljust(15), "col_type".ljust(10)
     for col_info in meta_data.cols:
-        print "%s   %s   %d" % (col_info.col_name, col_info.col_type, col_info.tbl_id)
+        print repr(col_info.tbl_id).ljust(8), col_info.col_name.ljust(15), col_info.col_type.ljust(10)
 
 def gen_sql_list_from_hive_meta_data(meta_data):
     insert_to_db = "Insert INTO hive_dbs (db_id, db_name) VALUES (%s, '%s');"
@@ -159,8 +170,11 @@ def gen_sql_list_from_hive_meta_data(meta_data):
         sql_list.append(insert_to_tbl % (tbl_info.tbl_id, tbl_info.tbl_name, tbl_info.db_id))
     for col_info in meta_data.cols:
         sql_list.append(insert_to_col % (col_info.col_name, col_info.col_type, col_info.tbl_id))
-
     return sql_list
+
+def print_sql_list(sql_list):
+    for sql in sql_list:
+        print sql
 
 def save_hive_meta_data(hive_meta_data, file_path):
     output = open(file_path, "wb")
@@ -242,24 +256,13 @@ class TestHiveExporter(unittest.TestCase):
                                        {"client_id":"int"},
                                    "product":
                                        {"product_id":"int"}}
-        expected_hive_meta = HiveMetaData()
-        expected_hive_meta.dbs = [DBInfo(0, "log"), DBInfo(1, "history"),
-                                  DBInfo(2, "demo")]
+        expected_hive_meta = copy.deepcopy(self.hive_meta_data)
+        expected_hive_meta.dbs.append(DBInfo(2, "demo"))
         expected_hive_meta.db_count = 3
-        expected_hive_meta.tbls = [TBLInfo(0, "role", 0), TBLInfo(1, "user", 0),
-                                   TBLInfo(2, "operate", 1), TBLInfo(3, "user", 1),
-                                   TBLInfo(4, "product", 2), TBLInfo(5, "client", 2)]
+        expected_hive_meta.tbls.extend([TBLInfo(4, "product", 2), TBLInfo(5, "client", 2)])
         expected_hive_meta.tbl_count = 6
-        expected_hive_meta.cols = [COLInfo("role_name", "string", 0), 
-                                   COLInfo("role_id", "int", 0),
-                                   COLInfo("user_name", "string", 1),
-                                   COLInfo("user_id", "int", 1),
-                                   COLInfo("create", "string", 2),
-                                   COLInfo("modify", "string", 2),
-                                   COLInfo("user_name", "string", 3),
-                                   COLInfo("user_id", "int", 3),
-                                   COLInfo("product_id", "int", 4),
-                                   COLInfo("client_id", "int", 5)]
+        expected_hive_meta.cols.extend([COLInfo("product_id", "int", 4),
+                                       COLInfo("client_id", "int", 5)])
         hive_meta = gen_new_hive_meta_data(self.db_tbl_map, self.hive_meta_data)
         self.assertEqual(expected_hive_meta, hive_meta)
 
@@ -271,27 +274,17 @@ class TestHiveExporter(unittest.TestCase):
                                        {"product_id":"int"}}
         self.db_tbl_map["log"]["level"] = {"level_id":"int"}
         self.db_tbl_map["history"]["operate"]["delete"] = "string"
-        expected_hive_meta = HiveMetaData()
-        expected_hive_meta.dbs = [DBInfo(0, "log"), DBInfo(1, "history"),
-                                  DBInfo(2, "demo")]
+        expected_hive_meta = copy.deepcopy(self.hive_meta_data)
+        expected_hive_meta.dbs.append(DBInfo(2, "demo"))
         expected_hive_meta.db_count = 3
-        expected_hive_meta.tbls = [TBLInfo(0, "role", 0), TBLInfo(1, "user", 0), 
-                                   TBLInfo(2, "operate", 1), TBLInfo(3, "user", 1),
-                                   TBLInfo(4, "product", 2), TBLInfo(5, "client", 2),
-                                   TBLInfo(6, "level", 0)]
+        expected_hive_meta.tbls.extend([TBLInfo(4, "product", 2), 
+                                        TBLInfo(5, "client", 2),
+                                        TBLInfo(6, "level", 0)])
         expected_hive_meta.tbl_count = 7
-        expected_hive_meta.cols = [COLInfo("role_name", "string", 0), 
-                                   COLInfo("role_id", "int", 0),
-                                   COLInfo("user_name", "string", 1),
-                                   COLInfo("user_id", "int", 1),
-                                   COLInfo("create", "string", 2),
-                                   COLInfo("modify", "string", 2),
-                                   COLInfo("user_name", "string", 3),
-                                   COLInfo("user_id", "int", 3),
-                                   COLInfo("product_id", "int", 4),
-                                   COLInfo("client_id", "int", 5),
-                                   COLInfo("level_id", "int", 6),
-                                   COLInfo("delete", "string", 2)]
+        expected_hive_meta.cols.extend([COLInfo("product_id", "int", 4),
+                                        COLInfo("client_id", "int", 5),
+                                        COLInfo("level_id", "int", 6),
+                                        COLInfo("delete", "string", 2)])
         hive_meta = gen_new_hive_meta_data(self.db_tbl_map, self.hive_meta_data)
         self.assertEqual(expected_hive_meta, hive_meta)
 
@@ -307,6 +300,75 @@ class TestHiveExporter(unittest.TestCase):
         self.assertEqual(self.hive_meta_data, new_hive_meta_data)
         os.remove(path)
 
+import argparse
+
+def get_sqls(args):
+    ns = vars(args)
+    print ns
+    print ns["out"]
+    url = ns["from"].split(":")
+    if len(url) == 2:
+        db_tbl_map = fetch_db_info_from_hive(url[0], url[1])
+    else:
+        db_tbl_map = fetch_db_info_from_hive(url[0])
+    hive_meta_data = gen_new_hive_meta_data(db_tbl_map, HiveMetaData())
+    if not ns["out"]:
+        print_sql_list(gen_sql_list_from_hive_meta_data(hive_meta_data))
+    else:
+        save_hive_meta_data(hive_meta_data, ns["out"])
+
+def update_sqls(args):
+    ns = vars(args)
+    print ns
+    url = ns["from"].split(":")
+    if len(url) == 2:
+        db_tbl_map = fetch_db_info_from_hive(url[0], url[1])
+    else:
+        db_tbl_map = fetch_db_info_from_hive(url[0])
+    old_meta_data = load_hive_meta_data(ns["in"])
+    hive_meta_data = gen_new_hive_meta_data(db_tbl_map, old_meta_data)
+    if not ns["out"]:
+        print_sql_list(gen_sql_list_from_hive_meta_data(hive_meta_data))
+    else:
+        save_hive_meta_data(hive_meta_data, ns["out"])
+
+def show_hive_db_info(args):
+    ns = vars(args)
+    if ns["from"]:
+        url = ns["from"].split(":")
+        if len(url) == 2:
+            db_tbl_map = fetch_db_info_from_hive(url[0], url[1])
+        else:
+            db_tbl_map = fetch_db_info_from_hive(url[0])
+        print_db_info(db_tbl_map)
+
+    if ns["path"]:
+        print_hive_meta_data(load_hive_meta_data(ns["path"]))
+
+def main():
+    parser = argparse.ArgumentParser(description="Get or update sql list from hive server")
+    subparsers = parser.add_subparsers(help="sub-command help")
+
+    parent_parser = argparse.ArgumentParser(add_help=False)
+    parent_parser.add_argument("-f", "--from", required=True, metavar="url[:port]", help="hive server address")
+    parent_parser.add_argument("-o", "--out", metavar="path", help="output file")
+    
+    parser_get = subparsers.add_parser("get", parents=[parent_parser], help="get sqls from hive server")
+    parser_get.set_defaults(func=get_sqls)
+
+    parser_update = subparsers.add_parser("update", parents=[parent_parser], help="udpate sqls from hive server")
+    parser_update.add_argument("-i", "--in", required=True, metavar="path", help="input file")
+    parser_update.set_defaults(func=update_sqls)
+
+    parser_show = subparsers.add_parser("show", help="show hive db info from hive server, or from meta data file")
+    group = parser_show.add_mutually_exclusive_group(required=True)
+    group.add_argument("-f", "--from", help="hive server address")
+    group.add_argument("-p", "--path", help="old backup file for sql export")
+    parser_show.set_defaults(func=show_hive_db_info)
+
+    args = parser.parse_args()
+    args.func(args)
 
 if __name__ == "__main__":
-    unittest.main()
+    sys.exit(main())
+#    unittest.main()
