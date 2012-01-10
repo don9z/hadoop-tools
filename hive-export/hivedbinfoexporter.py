@@ -130,17 +130,63 @@ class HiveMetaData(object):
         if not col_info in self.cols:
             self.cols.append(col_info)
 
+    def del_db(self, db_info):
+        self.dbs.remove(db_info)
+
+        tbls_to_delete = []
+        cols_to_delete = []
+        for tbl_info in self.tbls:
+            if tbl_info.db_id == db_info.db_id:
+                tbls_to_delete.append(tbl_info)
+                for col_info in self.cols:
+                    if col_info.tbl_id == tbl_info.tbl_id:
+                        cols_to_delete.append(col_info)
+
+        for tbl_info in tbls_to_delete:
+            self.tbls.remove(tbl_info)
+        for col_info in cols_to_delete:
+            self.cols.remove(col_info)
+
+    def del_tbl(self, tbl_info):
+        self.tbls.remove(tbl_info)
+        cols_to_delete = []
+        for col_info in self.cols:
+            if col_info.tbl_id == tbl_info.tbl_id:
+                cols_to_delete.append(col_info)
+
+        for col_info in cols_to_delete:
+            self.cols.remove(col_info)
+
+    def del_col(self, col_info):
+        self.cols.remove(col_info)
+
     def __eq__(self, other):
         return self.db_count == other.db_count and self.tbl_count == other.tbl_count and self.dbs == other.dbs and self.tbls == other.tbls and self.cols == other.cols
 
 def gen_new_hive_meta_data(db_tbl_map, old_meta_data=HiveMetaData()):
     meta_data = copy.deepcopy(old_meta_data)
+    # Add from map
     for db in db_tbl_map:
         meta_data.add_db(db)
         for tbl in db_tbl_map[db]:
             meta_data.add_tbl_in_db(tbl, db)
             for col_name in db_tbl_map[db][tbl]:
                 meta_data.add_col_in_tbl_of_db(col_name, db_tbl_map[db][tbl][col_name], tbl, db)
+    # Delete items not exist in map
+    for db_info in meta_data.dbs:
+        if not db_info.db_name in db_tbl_map.keys():
+            meta_data.del_db(db_info)
+        else:
+            for tbl_info in meta_data.tbls:
+                if tbl_info.db_id == db_info.db_id:
+                    if not (tbl_info.tbl_name in db_tbl_map[db_info.db_name].keys()):
+                        meta_data.del_tbl(tbl_info)
+                    else:
+                        for col_info in meta_data.cols:
+                            if (col_info.tbl_id == tbl_info.tbl_id 
+                                and (not col_info.col_name in 
+                                     db_tbl_map[db_info.db_name][tbl_info.tbl_name].keys())):
+                                meta_data.del_col(col_info)
     return meta_data
 
 def print_hive_meta_data(meta_data):
@@ -153,7 +199,7 @@ def print_hive_meta_data(meta_data):
     for tbl_info in meta_data.tbls:
         print repr(tbl_info.tbl_id).ljust(8), repr(tbl_info.db_id).ljust(8), tbl_info.tbl_name.ljust(20)
     print "-------- col info --------"
-    print "col_id".ljust(8), "col_name".ljust(15), "col_type".ljust(10)
+    print "tbl_id".ljust(8), "col_name".ljust(15), "col_type".ljust(10)
     for col_info in meta_data.cols:
         print repr(col_info.tbl_id).ljust(8), col_info.col_name.ljust(15), col_info.col_type.ljust(10)
 
@@ -251,7 +297,6 @@ class TestHiveExporter(unittest.TestCase):
         self.assertEqual(expected_hive_meta, hive_meta)
 
     def test_gen_new_hive_meta_from_old_when_db_is_added(self):
-        old_map = copy.deepcopy(self.db_tbl_map)
         self.db_tbl_map["demo"] = {"client":
                                        {"client_id":"int"},
                                    "product":
@@ -267,7 +312,6 @@ class TestHiveExporter(unittest.TestCase):
         self.assertEqual(expected_hive_meta, hive_meta)
 
     def test_gen_new_hive_meta_from_old_when_db_and_tbl_are_added(self):
-        old_map = copy.deepcopy(self.db_tbl_map)
         self.db_tbl_map["demo"] = {"client":
                                        {"client_id":"int"},
                                    "product":
@@ -287,6 +331,47 @@ class TestHiveExporter(unittest.TestCase):
                                         COLInfo("delete", "string", 2)])
         hive_meta = gen_new_hive_meta_data(self.db_tbl_map, self.hive_meta_data)
         self.assertEqual(expected_hive_meta, hive_meta)
+    
+    def test_gen_new_hive_meta_from_old_when_db_is_deleted(self):
+        del(self.db_tbl_map["history"])
+        expected_hive_meta = copy.deepcopy(self.hive_meta_data)
+        del(expected_hive_meta.dbs[1])
+        del(expected_hive_meta.tbls[2:4])
+        del(expected_hive_meta.cols[4:])
+        hive_meta = gen_new_hive_meta_data(self.db_tbl_map, self.hive_meta_data)
+        self.assertEqual(expected_hive_meta, hive_meta)
+
+    def test_gen_new_hive_meta_from_old_when_tbl_is_deleted(self):
+        del(self.db_tbl_map["history"]["operate"])
+        expected_hive_meta = copy.deepcopy(self.hive_meta_data)
+        del(expected_hive_meta.tbls[2])
+        del(expected_hive_meta.cols[4:6])
+        hive_meta = gen_new_hive_meta_data(self.db_tbl_map, self.hive_meta_data)
+        self.assertEqual(expected_hive_meta, hive_meta)
+
+    def test_gen_new_hive_meta_from_old_when_col_is_deleted(self):
+        del(self.db_tbl_map["history"]["operate"]["modify"])
+        del(self.db_tbl_map["log"]["user"]["user_id"])
+        expected_hive_meta = copy.deepcopy(self.hive_meta_data)
+        del(expected_hive_meta.cols[3])
+        del(expected_hive_meta.cols[4])
+        hive_meta = gen_new_hive_meta_data(self.db_tbl_map, self.hive_meta_data)
+        self.assertEqual(expected_hive_meta, hive_meta)
+
+    # def test_gen_new_hive_meta_from_old_when_db_tbl_and_col_are_deleted(self):
+    #     del(self.db_tbl_map["log"])
+    #     del(self.db_tbl_map["history"]["user"])
+    #     del(self.db_tbl_map["history"]["operate"]["modify"])
+    #     expected_hive_meta = copy.deepcopy(self.hive_meta_data)
+    #     del(expected_hive_meta.dbs[0])
+    #     del(expected_hive_meta.tbls[:2])
+    #     del(expected_hive_meta.cols[:4])
+    #     del(expected_hive_meta.tbls[1])
+    #     del(expected_hive_meta.cols[2:])
+    #     del(expected_hive_meta.cols[1])
+    #     print_hive_meta_data(expected_hive_meta)
+    #     hive_meta = gen_new_hive_meta_data(self.db_tbl_map, self.hive_meta_data)
+    #     self.assertEqual(expected_hive_meta, hive_meta)
 
     def test_gen_sql_list_from_hive_meta_data(self):
         sql_list = gen_sql_list_from_hive_meta_data(self.hive_meta_data)
@@ -363,5 +448,5 @@ def main():
     args.func(args)
 
 if __name__ == "__main__":
-    sys.exit(main())
-#    unittest.main()
+#    sys.exit(main())
+    unittest.main()
