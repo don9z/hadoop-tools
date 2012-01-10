@@ -344,19 +344,19 @@ def main():
 
     parent_parser = argparse.ArgumentParser(add_help=False)
     parent_parser.add_argument("-f", "--from", required=True, metavar="url[:port]", help="hive server address")
-    parent_parser.add_argument("-o", "--out", required=True, metavar="path", help="backup file")
+    parent_parser.add_argument("-o", "--out", required=True, metavar="path", help="backup file (save for updating sql)")
     
     parser_get = subparsers.add_parser("get", parents=[parent_parser], help="get sqls from hive server")
     parser_get.set_defaults(func=get_sqls)
 
     parser_update = subparsers.add_parser("update", parents=[parent_parser], help="udpate sqls from hive server")
-    parser_update.add_argument("-i", "--in", required=True, metavar="path", help="input file")
+    parser_update.add_argument("-i", "--in", required=True, metavar="path", help="previous backup file")
     parser_update.set_defaults(func=update_sqls)
 
     parser_show = subparsers.add_parser("show", help="show hive db info from hive server, or from meta data file")
     group = parser_show.add_mutually_exclusive_group(required=True)
     group.add_argument("-f", "--from", help="hive server address")
-    group.add_argument("-p", "--path", help="old backup file for sql export")
+    group.add_argument("-p", "--path", help="previous backup file")
     parser_show.set_defaults(func=show_hive_db_info)
 
     args = parser.parse_args()
