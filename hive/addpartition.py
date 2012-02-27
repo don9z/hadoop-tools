@@ -62,8 +62,8 @@ import argparse
 def add_partitions_to_hive(args):
     ns = vars(args)
     path = ns["path"]
-    table_name = ns["table_name"]
-    url = ns["from"].split(":")
+    table_name = ns["name"]
+    url = ns["server"].split(":")
     server_ip = '127.0.0.1'
     server_port = 10000
     if len(url) == 2:
