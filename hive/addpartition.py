@@ -86,7 +86,7 @@ def add_partitions_to_hive(args):
 def main():
     parser = argparse.ArgumentParser(description="Add partitions to hive by path")
     parser.add_argument("-p", "--path", required=True, metavar="path", 
-                        help="Hive table HDFS path, example: /user/user_name/table_name/p1=2/p2=3")
+                        help="Hive table HDFS path, example: /user/user_name/table_name/p1=2/p2=3, if the partition is int type; /user/user_name/table_name/p1=2/p2='3-1-2', if the partition is string type")
     parser.add_argument("-n", "--name", required=True, metavar="name", 
                         help="Hive table name")
     parser.add_argument("-s", "--server", required=True, metavar="url[:port]", 
@@ -102,22 +102,22 @@ import unittest
 class TestAddPartitionByPath(unittest.TestCase):
 
     def test_generate_alter_sql(self):
-        sql = generate_alter_sql(["server=1", "ds=2012-02-23"], "user_info")
-        self.assertEqual("ALTER TABLE user_info ADD PARTITION(ds=2012-02-23,server=1)",
+        sql = generate_alter_sql(["server=1", "ds='2012-02-23'"], "user_info")
+        self.assertEqual("ALTER TABLE user_info ADD PARTITION(ds='2012-02-23',server=1)",
                          sql)
     
     def test_get_partitions_from_path(self):
         partitions = get_partitions_from_path(
-            "/user/da/user_info/ds=2010-02-23/server=1", "user_info")
+            "/user/da/user_info/ds='2012-02-23'/server=1", "user_info")
         self.assertEqual(2, len(partitions))
-        self.assertEqual("ds=2010-02-23", partitions[1])
+        self.assertEqual("ds='2012-02-23'", partitions[1])
         self.assertEqual("server=1", partitions[0])
 
     def test_get_partitions_from_path_with_slash(self):
         partitions = get_partitions_from_path(
-            "/user/da/user_info/ds=2010-02-23/server=1/", "user_info")
+            "/user/da/user_info/ds='2012-02-23'/server=1/", "user_info")
         self.assertEqual(2, len(partitions))
-        self.assertEqual("ds=2010-02-23", partitions[1])
+        self.assertEqual("ds='2012-02-23'", partitions[1])
         self.assertEqual("server=1", partitions[0])
 
     def test_get_partitions_from_path_table_name_as_root(self):
@@ -127,12 +127,12 @@ class TestAddPartitionByPath(unittest.TestCase):
 
     def test_get_partitions_from_path_table_name_as_root_with_partitions(self):
         partitions = get_partitions_from_path(
-            "/user_info/ds=2010-02-23", "user_info")
+            "/user_info/ds='2012-02-23'", "user_info")
         self.assertEqual(1, len(partitions))
-        self.assertEqual("ds=2010-02-23", partitions[0])
+        self.assertEqual("ds='2012-02-23'", partitions[0])
         
     def test_path_is_invalid_not_include_table_name(self):
-        self.assertFalse(is_path_valid("/user/da/info/ds=2010-02-23/server=1/", 
+        self.assertFalse(is_path_valid("/user/da/info/ds='2012-02-23'/server=1/", 
                                        "user_info"))
 
     def test_path_is_invalid_not_include_equal_sign_after_table_name(self):
@@ -150,13 +150,13 @@ class TestAddPartitionByPath(unittest.TestCase):
         self.assertTrue(is_path_valid("/user_info", "user_info"))
 
     def test_path_is_valid_table_name_with_partitions(self):
-        self.assertTrue(is_path_valid("/user/da/user_info/ds=2012-02-03/server=1", 
+        self.assertTrue(is_path_valid("/user/da/user_info/ds='2012-02-23'/server=1", 
                                       "user_info"))
 
     def test_path_is_valid_ignore_last_slash(self):
-        self.assertTrue(is_path_valid("/user/da/user_info/ds=2012-02-03/server=1", 
+        self.assertTrue(is_path_valid("/user/da/user_info/ds='2012-02-23'/server=1", 
                                       "user_info"))
-        self.assertTrue(is_path_valid("/user/da/user_info/ds=2012-02-03/server=1/", 
+        self.assertTrue(is_path_valid("/user/da/user_info/ds='2012-02-23'/server=1/", 
                                       "user_info"))
 
 if __name__ == "__main__":
